@@ -1,0 +1,12 @@
+{application, ergly,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { ergly_app, []}},
+  {env, []}
+ ]}.
