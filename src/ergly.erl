@@ -5,42 +5,105 @@
 -define(green(S), "\e[0;92m" S "\e[0m").
 -define(yellow(S), "\e[0;93m" S "\e[0m").
 
+%% As we traverse the syntax tree, we'll re-enter format, but we need to
+%% remember stuff from higher up, such as the current function name, etc.
+%% That's kept in the context.
+-record(ctxt, {
+        indent, % a string containing a bunch of spaces.
+        clause  % for formatting clauses, what function (e.g.) are we in?
+        }).
+
+%% @todo Do contexts need nesting? If so, do we nest contexts, or do we nest
+%% parts of the context?  Thinking nest contexts, where C1 is derived from C0,
+%% so the topmost context represents the complete context.
+
 main([]) ->
     io:format("./ergly foo.erl\n");
 main([Filename]) ->
     {ok, Forms} = epp_dodger:parse_file(Filename),
     Comments = erl_comment_scan:file(Filename),
     Module = erl_recomment:recomment_forms(Forms, Comments),
-    Tree = module(Module),
-    write_module(Tree).
+    S = format(Module),
+    io:format(lists:flatten(S)).
 
-%% If we're passed a list of forms, group them into a single tree and retry.
-module(Forms) when is_list(Forms) ->
-    module(erl_syntax:form_list(Forms));
-module(Forms) ->
-    Forms1 = erl_syntax:flatten_form_list(Forms),
-    io:format("~p\n", [Forms1]).
+format(Node) ->
+    format(Node,
+           #ctxt{
+            indent = ""
+            }).
 
-write_module(X) ->
-    ok.
+format(Node, Ctxt) ->
+    format(erl_syntax:type(Node), Node, Ctxt).
 
-%% @doc form_list is the root of a re-commented parse tree.
-form({tree, form_list, _Location, Forms}) ->
-    form_list(Forms);
-%% @doc attribute is, e.g., "-module".
-form({tree, attribute, _, Attribute}) ->
-    attribute(Attribute);
-form(Form) ->
-    unknown(Form).
+format(atom, Node, _Ctxt) ->
+    erl_syntax:atom_literal(Node);
 
-form_list([]) ->
-    ok;
-form_list([Form | Rest]) ->
-    form(Form),
-    form_list(Rest).
+format(integer, Node, _Ctxt) ->
+    erl_syntax:integer_literal(Node);
 
-attribute({attribute, Atom, Args}) ->
-    io:format("-~s(~p)\n", [Atom, Args]).
+format(string, Node, _Ctxt) ->
+    erl_syntax:string_literal(Node);
 
-unknown(X) ->
-    io:format(?red("~p\n"), [X]).
+format(list, Node, Ctxt) ->
+    Node1 = erl_syntax:compact_list(Node),
+    ["[",
+     seq(erl_syntax:list_prefix(Node1), Ctxt),
+     case erl_syntax:list_suffix(Node1) of
+            none -> "";
+            Suffix -> 
+                seq(Suffix, Ctxt)
+        end,
+     "]"];
+
+format(arity_qualifier, Node, Ctxt) ->
+    F = erl_syntax:arity_qualifier_body(Node),
+    A = erl_syntax:arity_qualifier_argument(Node),
+    [format(F, Ctxt), "/", format(A, Ctxt)];
+
+format(function, Node, Ctxt) ->
+    Name = format(erl_syntax:function_name(Node)),
+    [nl(Ctxt), format_clauses(Name, erl_syntax:function_clauses(Node), indent(Ctxt)),
+     "."];
+
+format(clause, Node, Ctxt = #ctxt{clause = {function, Name}}) ->
+    _P = erl_syntax:clause_patterns(Node),
+    _G = erl_syntax:clause_guard(Node),
+    B = erl_syntax:clause_body(Node),
+    [Name, "() ->", nl(Ctxt), seq(B, Ctxt)];
+    %[Name, raw(P), raw(G), raw(B)];
+
+format(application, Node, Ctxt) ->
+    Op = erl_syntax:application_operator(Node),
+    Args = erl_syntax:application_arguments(Node),
+    [format(Op, Ctxt), "(", seq(Args, Ctxt), ")"];
+
+format(module_qualifier, Node, Ctxt) ->
+    Arg = erl_syntax:module_qualifier_argument(Node),
+    Body = erl_syntax:module_qualifier_body(Node),
+    [format(Arg, Ctxt), ":", format(Body, Ctxt)];
+
+format(form_list, Node, Ctxt) ->
+    [seq(erl_syntax:form_list_elements(Node), Ctxt), nl(Ctxt)];
+
+format(attribute, Node, Ctxt) ->
+    N = erl_syntax:attribute_name(Node),
+    ["-", format(N), 
+     "(", seq(erl_syntax:attribute_arguments(Node), Ctxt), ").", nl(Ctxt)];
+
+format(Type, Node, _Ctxt) ->
+    io_lib:format(?red("~p: ~p\n"), [Type, Node]).
+
+format_clauses(Name, Clauses, Ctxt) ->
+    seq(Clauses, Ctxt#ctxt{clause = {function, Name}}).
+
+seq(Xs, Ctxt) ->
+    lists:map(fun(X) -> format(X, Ctxt) end, Xs).
+
+indent(Ctxt = #ctxt{indent = Indent}) ->
+    Ctxt#ctxt{indent = "    " ++ Indent}.
+
+nl(_Ctxt = #ctxt{indent = Indent}) ->
+    ["\n", Indent].
+
+raw(X) ->
+    io_lib:format(?red("~p\n"), [X]).
