@@ -1,7 +1,5 @@
 -module(macros).
-
 -define(X, 42).
-
 -ifdef(TEST).
 -define(Y, 123).
 -else.

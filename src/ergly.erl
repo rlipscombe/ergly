@@ -104,11 +104,11 @@ format(form_list, Node, Ctxt) ->
 format(attribute, Node, Ctxt) ->
     Name = erl_syntax:attribute_name(Node),
     Args = erl_syntax:attribute_arguments(Node),
-    ["-", format(Name), "(", seq(Args, Ctxt), ").", nl(Ctxt)];
+    format_attribute(Name, Args, Ctxt);
 
 format(infix_expr, Node, Ctxt) ->
     Operator = erl_syntax:infix_expr_operator(Node),
-    Type = erl_syntax:type(Operator),
+    _Type = erl_syntax:type(Operator),
     Lhs = erl_syntax:infix_expr_left(Node),
     Rhs = erl_syntax:infix_expr_right(Node),
     [format(Lhs, Ctxt), " ", format(Operator, Ctxt), " ", format(Rhs, Ctxt)];
@@ -119,9 +119,17 @@ format(operator, Node, Ctxt) ->
 format(Type, Node, _Ctxt) ->
     io_lib:format(?red("~p: ~p\n"), [Type, Node]).
 
+format_attribute(Name, none, Ctxt) ->
+    ["-", format(Name), ".", nl(Ctxt)];
+format_attribute(Name, Args, Ctxt) ->
+    ["-", format(Name), "(", list(Args, Ctxt), ").", nl(Ctxt)].
+
 format_clauses(Name, Clauses, Ctxt) ->
     seq(Clauses, Ctxt#ctxt{clause = {function, Name}}).
 
+%% @todo If we want to build up context from one sibling to the next, rather
+%% than just from parent to child, we'll need to mutate the context as we go
+%% along.
 seq(Xs, Ctxt) ->
     lists:map(fun(X) -> format(X, Ctxt) end, Xs).
 
