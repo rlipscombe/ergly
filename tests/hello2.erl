@@ -9,3 +9,4 @@ bar(X) ->
 
 baz(X, Y) ->
     X * Y.
+

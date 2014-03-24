@@ -5,12 +5,12 @@
 -define(green(S), "\e[0;92m" S "\e[0m").
 -define(yellow(S), "\e[0;93m" S "\e[0m").
 
-%-define(VERBOSE, 1).
+-define(VERBOSE, 1).
 
 -ifdef(VERBOSE).
--define(verbose(X), io:format(standard_error, ?yellow("~p\n"), [Node])).
+-define(verbose(K, V), io:format(standard_error, ?green("~s ~p\n"), [K, V])).
 -else.
--define(verbose(X), ok).
+-define(verbose(K, V), ok).
 -endif.
 
 %% As we traverse the syntax tree, we'll re-enter format, but we need to
@@ -34,10 +34,11 @@ file(Filename) ->
     {ok, Forms} = epp_dodger:parse_file(Filename),
     Comments = erl_comment_scan:file(Filename),
     Module = erl_recomment:recomment_forms(Forms, Comments),
-    module(Module).
+    Str = module(Module),
+    io:format(Str).
 
 module(Module) ->
-    io:format(lists:flatten(format(Module))).
+    lists:flatten(format(Module)).
 
 format(Node) ->
     format(Node,
@@ -79,13 +80,13 @@ format(arity_qualifier, Node, Ctxt) ->
 format(function, Node, Ctxt) ->
     Name = format(erl_syntax:function_name(Node)),
     [nl(Ctxt), format_clauses(Name, erl_syntax:function_clauses(Node), indent(Ctxt)),
-     "."];
+     ".", nl(Ctxt)];
 
 format(clause, Node, Ctxt = #ctxt{clause = {function, Name}}) ->
-    _P = erl_syntax:clause_patterns(Node),
+    P = erl_syntax:clause_patterns(Node),  % parameters
     _G = erl_syntax:clause_guard(Node),
     B = erl_syntax:clause_body(Node),
-    [Name, "() ->", nl(Ctxt), seq(B, Ctxt)];
+    [Name, "(", list(P, Ctxt), ") ->", nl(Ctxt), seq(B, Ctxt)];
 
 format(application, Node, Ctxt) ->
     Op = erl_syntax:application_operator(Node),
@@ -101,10 +102,19 @@ format(form_list, Node, Ctxt) ->
     [seq(erl_syntax:form_list_elements(Node), Ctxt), nl(Ctxt)];
 
 format(attribute, Node, Ctxt) ->
-    ?verbose(Node),
     Name = erl_syntax:attribute_name(Node),
     Args = erl_syntax:attribute_arguments(Node),
     ["-", format(Name), "(", seq(Args, Ctxt), ").", nl(Ctxt)];
+
+format(infix_expr, Node, Ctxt) ->
+    Operator = erl_syntax:infix_expr_operator(Node),
+    Type = erl_syntax:type(Operator),
+    Lhs = erl_syntax:infix_expr_left(Node),
+    Rhs = erl_syntax:infix_expr_right(Node),
+    [format(Lhs, Ctxt), " ", format(Operator, Ctxt), " ", format(Rhs, Ctxt)];
+
+format(operator, Node, Ctxt) ->
+    erl_syntax:operator_literal(Node);
 
 format(Type, Node, _Ctxt) ->
     io_lib:format(?red("~p: ~p\n"), [Type, Node]).
@@ -126,9 +136,9 @@ indent(Ctxt = #ctxt{indent = Indent}) ->
     Ctxt#ctxt{indent = "    " ++ Indent}.
 
 %% @todo This isn't a good way to output indents. It means that we have to trim
-%% the output later.
+%% the output later. Moreover, we also have to trim trailing blank lines.
 nl(_Ctxt = #ctxt{indent = Indent}) ->
     ["\n", Indent].
 
 raw(X) ->
-    io_lib:format(?red("~p\n"), [X]).
+    io_lib:format(?yellow("~p\n"), [X]).
